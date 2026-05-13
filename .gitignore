@@ -1,0 +1,49 @@
+# Colab runner (thin wrapper — not part of the package)
+colab_runner.ipynb
+
+# W&B
+wandb/
+*.wandb
+
+# Checkpoints and data
+checkpoints/
+data/
+*.pt
+*.bin
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Results (keep the directory, ignore generated files)
+results/*.png
+results/*.json
+
+# Generated notebook outputs
+*.png
+!notebooks/
+
+# Pytest cache
+.pytest_cache/
+
+# Claude settings
+.claude/

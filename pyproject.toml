@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mhc-nanogpt"
+version = "0.1.0"
+description = "Manifold-Constrained Hyper-Connections on nanoGPT with Muon optimizer"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+dependencies = [
+    "torch>=2.1.0",
+    "numpy>=1.24.0",
+    "tiktoken>=0.5.0",
+    "datasets>=2.14.0",
+    "wandb>=0.16.0",
+    "matplotlib>=3.7.0",
+    "tqdm>=4.65.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0"]
+
+[tool.setuptools.packages.find]
+include = ["src*", "configs*"]
