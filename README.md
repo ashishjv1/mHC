@@ -4,7 +4,7 @@ Reproducing key ideas from the DeepSeek V4 paper on top of nanoGPT:
 
 - **Newton-Schulz orthogonalization** — compute $VW^T$ (polar decomposition) without the SVD, using only matmuls
 - **Muon optimizer** — orthogonalize momentum via Newton-Schulz before each weight update
-- **Manifold-Constrained Hyper-Connections (mHC)** — multi-stream residual with routing matrices retracted onto $O(n)$
+- **Manifold-Constrained Hyper-Connections (mHC)** — multi-stream residual with routing matrices Sinkhorn-projected onto the doubly-stochastic (Birkhoff) polytope, plus learnable stream selection
 
 ## Install
 

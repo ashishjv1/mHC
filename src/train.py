@@ -4,8 +4,8 @@ Training loop with W&B integration.
 Supports three configurations:
   1. Vanilla nanoGPT + AdamW
   2. Vanilla nanoGPT + Muon
-  3. mHC nanoGPT + Muon (with Newton-Schulz retraction)
-  4. (ablation) HC nanoGPT + Muon without retraction
+  3. mHC nanoGPT + Muon (Sinkhorn-constrained routing matrices)
+  4. (ablation) HC nanoGPT + Muon, unconstrained routing matrices
 
 Usage:
     python -m src.train --preset baseline_adamw
@@ -25,7 +25,6 @@ from configs.train_config import TrainConfig, PRESETS
 from src.data import DataLoader, prepare_openwebtext, prepare_fineweb_edu
 from src.model import GPT
 from src.muon import Muon
-from src.newton_schulz import retract_to_stiefel
 
 
 SAMPLE_PROMPTS = [
@@ -102,25 +101,6 @@ def set_lr(step: int, config: TrainConfig, optimizer, adamw_opt):
         return muon_lr
 
 
-def retract_routing_matrices(model: GPT, config: TrainConfig):
-    """Apply Newton-Schulz retraction to all A, B routing matrices."""
-    with torch.no_grad():
-        for block in model.blocks:
-            if hasattr(block, "hc_attn"):
-                block.hc_attn.A.data = retract_to_stiefel(
-                    block.hc_attn.A.data, steps=config.retraction_steps
-                )
-                block.hc_attn.B.data = retract_to_stiefel(
-                    block.hc_attn.B.data, steps=config.retraction_steps
-                )
-                block.hc_ffn.A.data = retract_to_stiefel(
-                    block.hc_ffn.A.data, steps=config.retraction_steps
-                )
-                block.hc_ffn.B.data = retract_to_stiefel(
-                    block.hc_ffn.B.data, steps=config.retraction_steps
-                )
-
-
 @torch.no_grad()
 def evaluate(model: GPT, val_loader: DataLoader, config: TrainConfig):
     model.eval()
@@ -149,15 +129,19 @@ def generate_samples(model: GPT, enc, device: str, dtype: str):
     return samples
 
 
+@torch.no_grad()
 def log_singular_values(model: GPT, step: int):
-    """Log singular value stats of all routing matrices."""
+    """Log singular value stats of the effective (Sinkhorn-projected) routing matrices."""
     metrics = {}
     for i, block in enumerate(model.blocks):
         if not hasattr(block, "hc_attn"):
             continue
         for sub_name, hc in [("attn", block.hc_attn), ("ffn", block.hc_ffn)]:
-            for mat_name, mat in [("A", hc.A), ("B", hc.B)]:
-                svs = torch.linalg.svdvals(mat.data.float())
+            if not hc.mix:
+                continue
+            mats = [("A", hc.mix_matrix(hc.A_logits)), ("B", hc.mix_matrix(hc.B_logits))]
+            for mat_name, mat in mats:
+                svs = torch.linalg.svdvals(mat.float())
                 prefix = f"sv/layer{i}_{sub_name}_{mat_name}"
                 metrics[f"{prefix}/min"] = svs.min().item()
                 metrics[f"{prefix}/max"] = svs.max().item()
@@ -284,10 +268,6 @@ def train(config: TrainConfig):
         optimizer.step()
         if adamw_opt is not None:
             adamw_opt.step()
-
-        # mHC retraction
-        if config.use_mhc and config.hc_mode == "constrained":
-            retract_routing_matrices(raw_model, config)
 
         step_time = time.time() - step_t0
         tokens_per_sec = config.tokens_per_step / step_time

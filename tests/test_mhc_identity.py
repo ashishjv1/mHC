@@ -1,19 +1,24 @@
 """
-Sanity check: with A=B=identity for all HyperConnection modules,
-the mHC model must produce the same output as the vanilla model
-within numerical noise.
+Sanity check: with the effective routing matrices A=B=identity and static
+slot-0 selection, the mHC model must produce the same output as the vanilla
+model within numerical noise.
+
+Since A/B go through Sinkhorn, identity is achieved by setting the *logits* to a
+large-diagonal matrix (Sinkhorn(eye * c) -> identity as c grows).
 
 Strategy:
   1. Create vanilla and mHC configs with identical architecture
-  2. Instantiate both models
-  3. Copy all shared weights from vanilla → mHC
-  4. Verify A, B are already identity (from init)
-  5. Forward the same input, check outputs match
+  2. Instantiate both models, copy all shared weights vanilla -> mHC
+  3. Force A_logits/B_logits to a large diagonal and verify effective A,B ~ I
+  4. Forward the same input, check outputs match
 """
 import torch
 import pytest
 from configs.train_config import TrainConfig
 from src.model import GPT
+
+# Sinkhorn(eye * 40) is identity to ~1e-11, so the routing is effectively exact.
+_IDENTITY_LOGIT_SCALE = 40.0
 
 
 def make_small_config(use_mhc: bool) -> TrainConfig:
@@ -51,12 +56,19 @@ def test_mhc_identity_matches_vanilla():
 
     mhc.load_state_dict(mhc_sd)
 
-    # Verify all A, B are identity
+    # Force effective routing matrices to identity via large-diagonal logits.
+    eye = torch.eye(4) * _IDENTITY_LOGIT_SCALE
+    with torch.no_grad():
+        for block in mhc.blocks:
+            for hc in (block.hc_attn, block.hc_ffn):
+                hc.A_logits.copy_(eye)
+                hc.B_logits.copy_(eye)
+
+    # Verify all effective A, B are identity
     for block in mhc.blocks:
-        assert torch.allclose(block.hc_attn.A, torch.eye(4))
-        assert torch.allclose(block.hc_attn.B, torch.eye(4))
-        assert torch.allclose(block.hc_ffn.A, torch.eye(4))
-        assert torch.allclose(block.hc_ffn.B, torch.eye(4))
+        for hc in (block.hc_attn, block.hc_ffn):
+            assert torch.allclose(hc.mix_matrix(hc.A_logits), torch.eye(4), atol=1e-6)
+            assert torch.allclose(hc.mix_matrix(hc.B_logits), torch.eye(4), atol=1e-6)
 
     # Forward pass
     idx = torch.randint(0, 256, (2, 16))
@@ -81,13 +93,12 @@ def test_mhc_streams_carry_information():
     config = make_small_config(use_mhc=True)
     model = GPT(config)
 
-    # Perturb A, B away from identity
+    # Perturb A, B logits away from identity
     with torch.no_grad():
         for block in model.blocks:
-            block.hc_attn.A.add_(0.1 * torch.randn_like(block.hc_attn.A))
-            block.hc_attn.B.add_(0.1 * torch.randn_like(block.hc_attn.B))
-            block.hc_ffn.A.add_(0.1 * torch.randn_like(block.hc_ffn.A))
-            block.hc_ffn.B.add_(0.1 * torch.randn_like(block.hc_ffn.B))
+            for hc in (block.hc_attn, block.hc_ffn):
+                hc.A_logits.add_(0.5 * torch.randn_like(hc.A_logits))
+                hc.B_logits.add_(0.5 * torch.randn_like(hc.B_logits))
 
     # Vanilla model with same base weights should now give different output
     vanilla_config = make_small_config(use_mhc=False)

@@ -61,8 +61,15 @@ class Block(nn.Module):
         self.mlp = MLP(config)
         self.use_mhc = config.use_mhc
         if self.use_mhc:
-            self.hc_attn = HyperConnection(config.n_streams)
-            self.hc_ffn = HyperConnection(config.n_streams)
+            constrain = config.hc_mode == "constrained"
+            self.hc_attn = HyperConnection(
+                config.n_streams, selection=config.hc_selection,
+                d_model=config.d_model, mix=config.hc_mix, constrain=constrain,
+            )
+            self.hc_ffn = HyperConnection(
+                config.n_streams, selection=config.hc_selection,
+                d_model=config.d_model, mix=config.hc_mix, constrain=constrain,
+            )
 
     def forward(self, x):
         if self.use_mhc:
@@ -167,12 +174,13 @@ class GPT(nn.Module):
                 continue
 
             is_embedding = "tok_emb" in name or "pos_emb" in name
-            is_hc_matrix = "hc_attn.A" in name or "hc_attn.B" in name or \
-                           "hc_ffn.A" in name or "hc_ffn.B" in name
+            # Keep all hyper-connection params (mixing matrices, selection
+            # vectors/gates) on AdamW, never Muon.
+            is_hc = ".hc_attn." in name or ".hc_ffn." in name
             is_norm = "ln_" in name
             is_bias = name.endswith(".bias")
 
-            if is_embedding or is_hc_matrix or is_norm or is_bias or p.ndim < 2:
+            if is_embedding or is_hc or is_norm or is_bias or p.ndim < 2:
                 if is_norm or is_bias or p.ndim < 2:
                     adamw_nodecay.append(p)
                 else:

@@ -18,9 +18,13 @@ class TrainConfig:
     # --- mHC ---
     use_mhc: bool = False
     n_streams: int = 4
-    retraction_steps: int = 5
-    # "constrained" applies NS retraction; "unconstrained" skips it
+    # "constrained" Sinkhorn-projects A/B onto doubly-stochastic matrices;
+    # "unconstrained" uses the raw parameter matrices (ablation).
     hc_mode: str = "constrained"
+    # Stream selection: "static" | "learnable" | "per_token"
+    hc_selection: str = "static"
+    # Whether to apply the Sinkhorn A/B mixing matrices
+    hc_mix: bool = True
 
     # --- Optimizer ---
     optimizer: str = "adamw"  # "adamw" or "muon"
